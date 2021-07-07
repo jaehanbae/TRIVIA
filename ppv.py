@@ -167,7 +167,7 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
     if write_pdf:
         fig.write_image(path.replace('.fits', '_ppv.pdf'))
     if write_html:
-        fig.write_html(path.replace('.fits', '_ppv.html'), include_plotlyjs='cdn')
+        fig.write_html(path.replace('.fits', '_ppv.html'), include_plotlyjs=True)
     return
 
 def generate_colorscale(cmap):

@@ -10,14 +10,14 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
         zaxis_backgroundcolor=None, zaxis_gridcolor=None,
         xmin=None, xmax=None, ymin=None, ymax=None, zmin=None, zmax=None,
         projection_x=False, projection_y=False, projection_z=True,
-        plot_colorbar=True, camera_eye_x=-1., camera_eye_y=-2., camera_eye_z=1.,
+        show_colorbar=True, camera_eye_x=-1., camera_eye_y=-2., camera_eye_z=1.,
         show_figure=False, write_pdf=True, write_html=True):
     """
     Create a three-dimensional position-position-velocity diagram.
 
     Args:
         path (str): Relative path to the FITS cube.
-        clip (Optional[float]): 
+        clip (Optional[float]): Clip the cube having cube.data > clip * cube.rms
         N (Optional[integer]): Downsample the data. 
         cmin (Optional[float]): The lower bound of the velocity for the colorscale in km/s. 
         cmax (Optional[float]): The upper bound of the velocity for the colorscale in km/s. 
@@ -48,7 +48,7 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
         projection_x (Optional[bool]): Whether or not to add projection on the Y-Z plane.
         projection_y (Optional[bool]): Whether or not to add projection on the X-Z plane.
         projection_z (Optional[bool]): Whether or not to add projection on the X-Y plane.
-        plot_colorbar (Optional[bool]): Whether or not to plot a colorbar.
+        show_colorbar (Optional[bool]): Whether or not to plot a colorbar.
         camera_eye_x (Optional[float]): The x component of the 'eye' camera vector.
         camera_eye_y (Optional[float]): The y component of the 'eye' camera vector.
         camera_eye_z (Optional[float]): The z component of the 'eye' camera vector.
@@ -145,7 +145,7 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
                       projection_z=dict(show=projection_z, opacity=1),
                      )
 
-    if plot_colorbar:
+    if show_colorbar:
         fig.update_traces(marker_colorbar=dict(thickness=20, 
                                                tickvals=np.arange(cmin,cmax+1,1),
                                                tickformat='.2f',

@@ -1,4 +1,4 @@
-Tools for interactive figures from FITS file
+Tools for interactive FITS visualization
 
 # Usage
 To make a position-position-velocity diagram, simply use

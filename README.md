@@ -1,4 +1,5 @@
-Tools for interactive FITS visualization
+# TRIVIA
+Tools foR Interactive fits VIsuAlization
 
 # Usage
 To make a position-position-velocity diagram, simply use

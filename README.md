@@ -1,9 +1,14 @@
-# PPV
-Tools to disentangle streamer from disk
+Tools for interactive figures from FITS file
 
 # Usage
 To make a position-position-velocity diagram, simply use
 ```bash
-import ppv
-ppv.ppv('path_to_fits')
+from ppv import ppv
+ppv('path_to_fits')
+```
+
+To make interactive channel maps, simply use
+```bash
+from channelmap import channelmap
+channelmap('path_to_fits')
 ```

@@ -13,7 +13,7 @@ def rebin3d(arr, new_shape):
     return arr.reshape(shape).mean(-1).mean(-2).mean(-3)
 
 def channelmap(path, vmin=None, vmax=None, nv=None, nx=None, ny=None,
-               ):
+               cmap=None):
     """
     Create interactive channel map.
 
@@ -24,7 +24,7 @@ def channelmap(path, vmin=None, vmax=None, nv=None, nx=None, ny=None,
         nv (Optional[float]): Number of velocity channels.
         nx (Optional[float]): Number of x pixels.
         ny (Optional[float]): Number of y pixels.
-
+        cmap (Optional[str]): Color map to use.
     Returns:
         Interactive channel map in a html format.
     """
@@ -49,7 +49,8 @@ def channelmap(path, vmin=None, vmax=None, nv=None, nx=None, ny=None,
     yaxis = rebin1d(cube.yaxis,[ny])
     toplot = rebin3d(cube.data,[nv,nx,ny])
 
-    fig = px.imshow(toplot, color_continuous_scale='inferno', origin='lower', 
+    cmap = 'inferno' if cmap is None else cmap
+    fig = px.imshow(toplot, color_continuous_scale=cmap, origin='lower', 
                     x=xaxis, y=yaxis,
                     zmin=vmin, zmax=vmax, 
                     labels=dict(x="RA offset [arcsec]", y="Dec offset [arcsec]", 

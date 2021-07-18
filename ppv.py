@@ -1,9 +1,10 @@
 import numpy as np
 import cmasher as cmr
+import pandas as pd
 import plotly.graph_objects as go # https://plotly.com/python/3d-scatter-plots/
 from gofish import imagecube
 
-def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntrace=20, 
+def ppv(path, clip=5., rmin=None, rmax = None, N=None, cmin=None, cmax=None, constant_opacity=None, ntrace=20, 
         marker_size=2, cmap=None, hoverinfo='x+y+z', colorscale=None, xaxis_title=None, 
         yaxis_title=None, zaxis_title=None, xaxis_backgroundcolor=None, xaxis_gridcolor=None,
         yaxis_backgroundcolor=None, yaxis_gridcolor=None,
@@ -11,14 +12,16 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
         xmin=None, xmax=None, ymin=None, ymax=None, zmin=None, zmax=None,
         projection_x=False, projection_y=False, projection_z=True,
         show_colorbar=True, camera_eye_x=-1., camera_eye_y=-2., camera_eye_z=1.,
-        show_figure=False, write_pdf=True, write_html=True):
+        show_figure=False, write_pdf=True, write_html=True, write_csv=False):
     """
     Create a three-dimensional position-position-velocity diagram.
 
     Args:
         path (str): Relative path to the FITS cube.
         clip (Optional[float]): Clip the cube having cube.data > clip * cube.rms
-        N (Optional[integer]): Downsample the data. 
+        rmin (Optional[float]): Inner radius of the radial mask 
+        rmax (Optional[float]): Outer radius of the radial mask 
+        N (Optional[integer]): Downsample the data by a factor of N. 
         cmin (Optional[float]): The lower bound of the velocity for the colorscale in km/s. 
         cmax (Optional[float]): The upper bound of the velocity for the colorscale in km/s. 
         constant_opacity (Optional[float]): If not None, use a constant opacity of the given value.
@@ -55,20 +58,31 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
         show_figure (Optional[bool]): If True, show PPV diagram.
         write_pdf (Optional[bool]): If True, write PPV diagram in a pdf file.
         write_html (Optional[bool]): If True, write PPV diagram in a html file.
+        write_csv (Optional[bool]): If True, write the data to create the PPV diagram in a csv file.
     Returns:
         PPV diagram in a pdf and/or a html format.
     """
     # Read in the FITS data.
     cube = imagecube(path)
 
-    # Generate a mask based on SNR.
-    SNR_mask = cube.data > clip * cube.rms
+    # Generate a SNR mask
+    mask_SNR = cube.data > clip * cube.rms
+    
+    # Generate a radial mask
+    r, t, z = cube.disk_coords()
+    rmin = 0 if rmin is None else rmin
+    rmax = cube.FOV if rmax is None else rmax
+    mask_r = np.logical_and(r >= rmin, r <= rmax)
+    mask_r = np.tile(mask_r, (cube.data.shape[0], 1, 1))
 
-    # Sigma-clipped LOS velocity, RA, Dec, intensity arrays.
-    v = (cube.velax[:, None, None] * np.ones(cube.data.shape))[SNR_mask]/1e3
-    x = (cube.xaxis[None, None, :] * np.ones(cube.data.shape))[SNR_mask]
-    y = (cube.yaxis[None, :, None] * np.ones(cube.data.shape))[SNR_mask]
-    i = cube.data[SNR_mask]
+    # Generate a combined mask
+    mask = np.logical_and(mask_SNR, mask_r)
+
+    # Masked LOS velocity, RA, Dec, intensity arrays.
+    v = (cube.velax[:, None, None] * np.ones(cube.data.shape))[mask]/1e3
+    x = (cube.xaxis[None, None, :] * np.ones(cube.data.shape))[mask]
+    y = (cube.yaxis[None, :, None] * np.ones(cube.data.shape))[mask]
+    i = cube.data[mask]
 
     # Take N random voxel.
     N = np.int(np.max([v.size/1.0e5,1])) if N is None else N
@@ -136,7 +150,8 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
                                   yaxis_range=[ymin, ymax],
                                   zaxis_range=[zmin, zmax],
                                   aspectmode='cube'),
-                       margin=dict(l=0, r=0, b=0, t=0), showlegend=False)
+                       margin=dict(l=0, r=0, b=0, t=0), showlegend=False,
+                       width=600, height=450,)
 
     fig = go.Figure(data=datas, layout=layout)
 
@@ -147,13 +162,14 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
 
     if show_colorbar:
         fig.update_traces(marker_colorbar=dict(thickness=20, 
-                                               tickvals=np.arange(cmin,cmax+1,1),
+                                               tickvals=np.arange(cmin,cmax+1),
                                                tickformat='.2f',
                                                title='v [km/s]',
                                                title_side='right',
                                                len=0.5
                                               )
                          )
+#        fig.update_layout(coloraxis_colorbar_x=-1.)
 
     camera = dict(up=dict(x=0, y=0, z=1),
                   center=dict(x=0, y=0, z=0),
@@ -168,6 +184,9 @@ def ppv(path, clip=5., N=None, cmin=None, cmax=None, constant_opacity=None, ntra
         fig.write_image(path.replace('.fits', '_ppv.pdf'))
     if write_html:
         fig.write_html(path.replace('.fits', '_ppv.html'), include_plotlyjs=True)
+    if write_csv:
+        df = pd.DataFrame({"RA offset" : x, "Dec offset" : y, "velocity" : v})
+        df.to_csv(path.replace('.fits', '_ppv.csv'), float_format='%.3e', index=False)
     return
 
 def generate_colorscale(cmap):

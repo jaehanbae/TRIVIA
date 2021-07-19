@@ -95,6 +95,8 @@ def channelmap(path, vmin=None, vmed=None, vmax=None, nv=None, nx=None, ny=None,
                     animation_frame=0,
                    )
     fig.update_xaxes(autorange="reversed")
+    fig.update_xaxes(ticks="outside")
+    fig.update_yaxes(ticks="outside")
     for i, frame in enumerate(fig.frames):
         frame['layout'].update(title_text="v= {:.2f} km/s".format(vaxis[i]/1.0e3),
                                title_x=0.5,

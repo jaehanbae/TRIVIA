@@ -1,5 +1,5 @@
-# TRIVIA
-Tools foR Interactive fits VIsuAlization
+# TRIVIA: Tools foR Interactive fits VIsuAlization
+Make AAS journal-compatible interactive figures from 3D fits cubes.
 
 # Usage
 To make a position-position-velocity diagram, simply use

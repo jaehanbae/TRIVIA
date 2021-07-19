@@ -79,6 +79,10 @@ def ppv(path, clip=5., rmin=None, rmax = None, N=None, cmin=None, cmax=None, con
     mask = np.logical_and(mask_SNR, mask_r)
 
     # Masked LOS velocity, RA, Dec, intensity arrays.
+#    v = np.around((cube.velax[:, None, None] * np.ones(cube.data.shape))[mask]/1e3,decimals=3)
+#    x = np.around((cube.xaxis[None, None, :] * np.ones(cube.data.shape))[mask],decimals=3)
+#    y = np.around((cube.yaxis[None, :, None] * np.ones(cube.data.shape))[mask],decimals=3)
+#    i = np.around(cube.data[mask],decimals=3)
     v = (cube.velax[:, None, None] * np.ones(cube.data.shape))[mask]/1e3
     x = (cube.xaxis[None, None, :] * np.ones(cube.data.shape))[mask]
     y = (cube.yaxis[None, :, None] * np.ones(cube.data.shape))[mask]
@@ -191,14 +195,13 @@ def ppv(path, clip=5., rmin=None, rmax = None, N=None, cmin=None, cmax=None, con
 
 def generate_colorscale(cmap):
     """
-    Convert a CMasher color table into a plotly-compatible color table.
-    See https://cmasher.readthedocs.io/
+    Convert a color table into a CSS-compatible color table.
 
     Args:
-        cmap (str): CMasher color table name. e.g., 'cmr.pride'
+        cmap (str): Color table name. e.g., 'cmr.pride'
 
     Returns:
-        A list containing plotly-compatible color table.
+        A list containing CSS-compatible color table.
     """
     cmarr = np.array(cmr.take_cmap_colors('cmr.pride', 128))
     colorscale = [[f, 'rgb({}, {}, {})'.format(*cmarr[ff])]

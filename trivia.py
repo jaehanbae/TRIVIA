@@ -3,6 +3,7 @@ import pandas as pd
 import cmasher as cmr
 import plotly.express as px
 import plotly.graph_objects as go 
+from scipy.interpolate import RegularGridInterpolator
 from gofish import imagecube
 from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
@@ -63,19 +64,28 @@ def make_colorscale(cmap):
                   for ff, f in enumerate(np.linspace(0, 1, cmarr.shape[0]))]
     return colorscale
 
-def make_cm(path, vmin=None, vmed=None, vmax=None, nv=None, nx=None, ny=None,
-               cmap=None, show_figure=False, write_html=True):
+def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None,
+            xmin=None, xmax=None, ymin=None, ymax=None,
+            nx=None, ny=None, cmap=None, nointerp=False, show_figure=False, write_html=True):
     """
     Make interactive channel map.
 
     Args:
         path (str): Relative path to the FITS cube.
-        vmin (Optional[float]): The lower bound of the flux. 
-        vmax (Optional[float]): The upper bound of the flux.
-        nv (Optional[float]): Number of velocity channels.
+        clip (Optional[float]): Plot cube.data < clip * cube.rms in black and white.
+        fmin (Optional[float]): The lower bound of the flux. 
+        fmed (Optional[float]): The boundary between bw/color cmaps.
+        fmax (Optional[float]): The upper bound of the flux.
+        vmin (Optional[float]): The lower bound of the velocity in km/s. 
+        vmax (Optional[float]): The upper bound of the velocity in km/s.
+        xmin (Optional[float]): The lower bound of X range.
+        xmax (Optional[float]): The upper bound of X range.
+        ymin (Optional[float]): The lower bound of Y range.
+        ymax (Optional[float]): The upper bound of Y range.
         nx (Optional[float]): Number of x pixels.
         ny (Optional[float]): Number of y pixels.
         cmap (Optional[str]): Color map to use.
+        nointerp (Optional[bool]): If True, no interpolation applied to the data.
         show_figure (Optional[bool]): If True, show channel map.
         write_html (Optional[bool]): If True, write channel map in a html file.
     Returns:
@@ -83,32 +93,68 @@ def make_cm(path, vmin=None, vmed=None, vmax=None, nv=None, nx=None, ny=None,
     """
     # Read in the FITS data.
     cube = imagecube(path)
+    cube.data = cube.data.astype(float)
 
-    vmin = 0. if vmin is None else vmin
-    vmed = 5.*cube.rms if vmed is None else vmed
-    vmax = cube.data.max()*0.5 if vmax is None else vmax
+    fmin = 0. if fmin is None else fmin
+    fmed = clip*cube.rms if fmed is None else fmed
+    fmax = cube.data.max()*0.5 if fmax is None else fmax
     funit = 'Jy/beam'
-    if vmax < 0.5 :
+    if fmax < 0.5 :
         cube.data *= 1.0e3
-        vmin *= 1.0e3
-        vmed *= 1.0e3
-        vmax *= 1.0e3
+        fmin *= 1.0e3
+        fmed *= 1.0e3
+        fmax *= 1.0e3
         funit = 'mJy/beam'
 
-    nv = cube.data.shape[0] if nv is None else nv
-    nx = 400 if nx is None else nx
-    ny = 400 if ny is None else ny
+    xmin = cube.FOV/2.0 if xmin is None else xmin
+    xmax = -cube.FOV/2.0 if xmax is None else xmax
+    ymin = -cube.FOV/2.0 if ymin is None else ymin
+    ymax = cube.FOV/2.0 if ymax is None else ymax
 
-    vaxis = np.around(rebin1d(cube.velax,[nv]),decimals=3)
-    xaxis = np.around(rebin1d(cube.xaxis,[nx]),decimals=3)
-    yaxis = np.around(rebin1d(cube.yaxis,[ny]),decimals=3)
-    toplot = np.around(rebin3d(cube.data,[nv,nx,ny]),decimals=3)
+    # Crop the data along the velocity axis, implemented from gofish
+    vmin = cube.velax[0] if vmin is None else vmin*1.0e3
+    vmax = cube.velax[-1] if vmax is None else vmax*1.0e3
+    i = np.abs(cube.velax - vmin).argmin()
+    i += 1 if cube.velax[i] < vmin else 0
+    j = np.abs(cube.velax - vmax).argmin()
+    j -= 1 if cube.velax[j] > vmax else 0
+    cube.velax = cube.velax[i:j+1]
+    cube.data = cube.data[i:j+1]
 
-    cmap = concatenate_cmaps('binary','inferno',ratio=vmed/vmax) if cmap is None else cmap
+    # Interpolate the cube on the RA-Dec plane
+    # Caution: This is only for visualization purposes.
+    # Avoid using this interpolation routine for scientific purposes. 
+    if not nointerp:
+        nx = 400 if nx is None else nx
+        ny = 400 if ny is None else ny
+
+        oldx = cube.xaxis
+        oldy = cube.yaxis
+
+        cube.xaxis = np.linspace(cube.xaxis[0],cube.xaxis[-1],nx)
+        cube.yaxis = np.linspace(cube.yaxis[0],cube.yaxis[-1],ny)
+        cube.nxpix, cube.nypix = nx, ny
+
+        newx, newy = np.meshgrid(cube.xaxis, cube.yaxis)
+        newdata = np.zeros((cube.data.shape[0],ny,nx))
+
+        for i in np.arange(cube.data.shape[0]):
+            interp_func = RegularGridInterpolator((oldy, oldx[::-1]), cube.data[i])
+            newdata[i] = interp_func(np.array([newy.flatten(), newx.flatten()]).T).reshape((ny,nx))[:,::-1]
+        cube.data = newdata
+    else:
+        print("Warning: No interpolation will perform. The output file can be very large!")
+
+    cube.xaxis = np.around(cube.xaxis,decimals=3)
+    cube.yaxis = np.around(cube.yaxis,decimals=3)
+
+    toplot = np.around(cube.data,decimals=3)
+
+    cmap = concatenate_cmaps('binary','inferno',ratio=fmed/fmax) if cmap is None else cmap
 
     fig = px.imshow(toplot, color_continuous_scale=cmap, origin='lower', 
-                    x=xaxis, y=yaxis,
-                    zmin=vmin, zmax=vmax, 
+                    x=cube.xaxis, y=cube.yaxis,
+                    zmin=fmin, zmax=fmax, 
                     labels=dict(x="RA offset [arcsec]", y="Dec offset [arcsec]", 
                                 color="Intensity ["+funit+"]", animation_frame="channel"),
                     animation_frame=0,
@@ -117,7 +163,7 @@ def make_cm(path, vmin=None, vmed=None, vmax=None, nv=None, nx=None, ny=None,
     fig.update_xaxes(ticks="outside")
     fig.update_yaxes(ticks="outside")
     for i, frame in enumerate(fig.frames):
-        frame['layout'].update(title_text="v = {:.2f} km/s".format(vaxis[i]/1.0e3),
+        frame['layout'].update(title_text="v = {:.2f} km/s".format(cube.velax[i]/1.0e3),
                                title_x=0.5,
                               )
 
@@ -127,7 +173,7 @@ def make_cm(path, vmin=None, vmed=None, vmax=None, nv=None, nx=None, ny=None,
        fig.write_html(path.replace('.fits', '_channel.html'), include_plotlyjs='cdn')
     return
 
-def make_ppv(path, clip=5., rmin=None, rmax = None, N=None, cmin=None, cmax=None, constant_opacity=None, ntrace=20, 
+def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, constant_opacity=None, ntrace=20, 
         marker_size=2, cmap=None, hoverinfo='x+y+z', colorscale=None, xaxis_title=None, 
         yaxis_title=None, zaxis_title=None, xaxis_backgroundcolor=None, xaxis_gridcolor=None,
         yaxis_backgroundcolor=None, yaxis_gridcolor=None,
@@ -274,7 +320,7 @@ def make_ppv(path, clip=5., rmin=None, rmax = None, N=None, cmin=None, cmax=None
                                   zaxis_range=[zmin, zmax],
                                   aspectmode='cube'),
                        margin=dict(l=0, r=0, b=0, t=0), showlegend=False,
-                       width=600, height=450,)
+                       )
 
     fig = go.Figure(data=datas, layout=layout)
 

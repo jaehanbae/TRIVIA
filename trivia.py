@@ -4,24 +4,10 @@ import cmasher as cmr
 import plotly.express as px
 import plotly.graph_objects as go 
 from scipy.interpolate import RegularGridInterpolator
+from scipy.interpolate import CubicSpline
 from gofish import imagecube
 from matplotlib import cm
 from matplotlib.colors import ListedColormap, LinearSegmentedColormap
-
-def rebin1d(arr, new_shape):
-    shape = (new_shape[0], arr.shape[0] // new_shape[0])
-    return arr.reshape(shape).mean(-1)
-
-def rebin2d(arr, new_shape):
-    shape = (new_shape[0], arr.shape[0] // new_shape[0],
-             new_shape[1], arr.shape[1] // new_shape[1])
-    return arr.reshape(shape).mean(-1).mean(-2)
-
-def rebin3d(arr, new_shape):
-    shape = (new_shape[0], arr.shape[0] // new_shape[0],
-             new_shape[1], arr.shape[1] // new_shape[1],
-             new_shape[2], arr.shape[2] // new_shape[2])
-    return arr.reshape(shape).mean(-1).mean(-2).mean(-3)
 
 def concatenate_cmaps(cmap1, cmap2, ratio=None, ntot=None):
     """
@@ -121,6 +107,9 @@ def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None
     cube.velax = cube.velax[i:j+1]
     cube.data = cube.data[i:j+1]
 
+    if (cube.velax.shape[0] > 200.):
+        print("Warning: There are total", cube.velax.shape[0], "channels. The output file can be very large! Consider using a smaller velocity range by changing vmin and vmax.")
+
     # Interpolate the cube on the RA-Dec plane
     # Caution: This is only for visualization purposes.
     # Avoid using this interpolation routine for scientific purposes. 
@@ -178,7 +167,7 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
         yaxis_title=None, zaxis_title=None, xaxis_backgroundcolor=None, xaxis_gridcolor=None,
         yaxis_backgroundcolor=None, yaxis_gridcolor=None,
         zaxis_backgroundcolor=None, zaxis_gridcolor=None,
-        xmin=None, xmax=None, ymin=None, ymax=None, zmin=None, zmax=None,
+        xmin=None, xmax=None, ymin=None, ymax=None, vmin=None, vmax=None, dv=None,
         projection_x=False, projection_y=False, projection_z=True,
         show_colorbar=True, camera_eye_x=-1., camera_eye_y=-2., camera_eye_z=1.,
         show_figure=False, write_pdf=True, write_html=True, write_csv=False):
@@ -215,8 +204,9 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
         xmax (Optional[float]): The upper bound of PPV diagram X range.
         ymin (Optional[float]): The lower bound of PPV diagram Y range.
         ymax (Optional[float]): The upper bound of PPV diagram Y range.
-        zmin (Optional[float]): The lower bound of PPV diagram Z range.
-        zmax (Optional[float]): The upper bound of PPV diagram Z range.
+        vmin (Optional[float]): The lower bound of PPV diagram Z range in km/s.
+        vmax (Optional[float]): The upper bound of PPV diagram Z range in km/s.
+        dv (Optional[float]): Desired velocity resolution in km/s.
         projection_x (Optional[bool]): Whether or not to add projection on the Y-Z plane.
         projection_y (Optional[bool]): Whether or not to add projection on the X-Z plane.
         projection_z (Optional[bool]): Whether or not to add projection on the X-Y plane.
@@ -233,6 +223,25 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
     """
     # Read in the FITS data.
     cube = imagecube(path)
+    cube.data = cube.data.astype(float)
+
+    # Crop the data along the velocity axis, implemented from gofish
+#    vmin = cube.velax[0] if vmin is None else vmin*1.0e3
+#    vmax = cube.velax[-1] if vmax is None else vmax*1.0e3
+    vmin = 0.5*(cube.velax.min() + cube.velax.max()) - 5.0e3 if vmin is None else vmin*1.0e3
+    vmax = 0.5*(cube.velax.min() + cube.velax.max()) + 5.0e3 if vmax is None else vmax*1.0e3
+    i = np.abs(cube.velax - vmin).argmin()
+    i += 1 if cube.velax[i] < vmin else 0
+    j = np.abs(cube.velax - vmax).argmin()
+    j -= 1 if cube.velax[j] > vmax else 0
+    cube.velax = cube.velax[i:j+1]
+    cube.data = cube.data[i:j+1]
+    
+    if dv is not None:
+        newvelax = np.arange(cube.velax[0], cube.velax[-1], dv*1.0e3)
+        cs = CubicSpline(cube.velax, cube.data, axis=0)
+        cube.data = cs(newvelax)
+        cube.velax = newvelax
 
     # Generate a SNR mask
     mask_SNR = cube.data > clip * cube.rms
@@ -240,7 +249,7 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
     # Generate a radial mask
     r, t, z = cube.disk_coords()
     rmin = 0 if rmin is None else rmin
-    rmax = cube.FOV if rmax is None else rmax
+    rmax = cube.FOV/3. if rmax is None else rmax
     mask_r = np.logical_and(r >= rmin, r <= rmax)
     mask_r = np.tile(mask_r, (cube.data.shape[0], 1, 1))
 
@@ -263,6 +272,9 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
         y = y[idx][::N]
         i = i[idx][::N]
 
+    if (v.shape[0] > 1.0e6):
+        print("Warning: There are total", v.shape[0], "points to present. The output file can be very large! Consider using a smaller N.")
+
     # Normalize the intensity.
     i = (i - i.min())/(i.max() - i.min())
 
@@ -272,22 +284,6 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
     if constant_opacity is not None:
         opacity[:] = constant_opacity
     datas = []
-
-    colorscale = make_colorscale('cmr.pride') if colorscale is None else cmap
-    cmin = 0.5*(cube.velax.min() + cube.velax.max())/1.0e3 - 4 if cmin is None else cmin
-    cmax = 0.5*(cube.velax.min() + cube.velax.max())/1.0e3 + 4 if cmax is None else cmax
-
-    # 3d scatter plot
-    for a, alpha in enumerate(opacity):
-        mask = np.logical_and(i >= cuts[a], i < cuts[a+1])
-        datas += [go.Scatter3d(x=x[mask], y=y[mask], z=v[mask], mode='markers',
-                               marker=dict(size=marker_size, color=v[mask], colorscale=colorscale,
-                                           cauto=False, cmin=cmin, cmax=cmax,
-                                           opacity=min(1.0, alpha)),
-                               hoverinfo=hoverinfo,
-#                              name='I ='+(str('% 4.2f' % cuts[a]))+' -'+(str('% 4.2f' % cuts[a+1]))
-                              )
-                 ]
 
     xaxis_title = 'RA offset [arcsec]' if xaxis_title is None else xaxis_title
     yaxis_title = 'Dec offset [arcsec]' if yaxis_title is None else yaxis_title
@@ -302,8 +298,22 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
     xmax = -cube.FOV/2.0 if xmax is None else xmax
     ymin = -cube.FOV/2.0 if ymin is None else ymin
     ymax = cube.FOV/2.0 if ymax is None else ymax
-    zmin = cube.velax.min()/1e3 if zmin is None else zmin
-    zmax = cube.velax.max()/1e3 if zmax is None else zmax
+
+    colorscale = make_colorscale('cmr.pride') if colorscale is None else cmap
+    cmin = vmin/1.0e3 if cmin is None else cmin
+    cmax = vmax/1.0e3 if cmax is None else cmax
+
+    # 3d scatter plot
+    for a, alpha in enumerate(opacity):
+        mask = np.logical_and(i >= cuts[a], i < cuts[a+1])
+        datas += [go.Scatter3d(x=x[mask], y=y[mask], z=v[mask], mode='markers',
+                               marker=dict(size=marker_size, color=v[mask], colorscale=colorscale,
+                                           cauto=False, cmin=cmin, cmax=cmax,
+                                           opacity=min(1.0, alpha)),
+                               hoverinfo=hoverinfo,
+#                              name='I ='+(str('% 4.2f' % cuts[a]))+' -'+(str('% 4.2f' % cuts[a+1]))
+                              )
+                 ]
 
     # layout
     layout = go.Layout(scene=dict(xaxis_title=xaxis_title, 
@@ -317,7 +327,7 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
                                   zaxis_gridcolor=zaxis_gridcolor,
                                   xaxis_range=[xmin, xmax],
                                   yaxis_range=[ymin, ymax],
-                                  zaxis_range=[zmin, zmax],
+                                  zaxis_range=[vmin/1.0e3, vmax/1.0e3],
                                   aspectmode='cube'),
                        margin=dict(l=0, r=0, b=0, t=0), showlegend=False,
                        )

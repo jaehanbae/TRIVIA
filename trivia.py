@@ -83,7 +83,7 @@ def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None
 
     fmin = 0. if fmin is None else fmin
     fmed = clip*cube.rms if fmed is None else fmed
-    fmax = cube.data.max()*0.5 if fmax is None else fmax
+    fmax = cube.data.max()*0.7 if fmax is None else fmax
     funit = 'Jy/beam'
     if fmax < 0.5 :
         cube.data *= 1.0e3
@@ -92,10 +92,41 @@ def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None
         fmax *= 1.0e3
         funit = 'mJy/beam'
 
-    xmin = cube.FOV/2.0 if xmin is None else xmin
-    xmax = -cube.FOV/2.0 if xmax is None else xmax
-    ymin = -cube.FOV/2.0 if ymin is None else ymin
-    ymax = cube.FOV/2.0 if ymax is None else ymax
+    if xmin is None:
+        xmin = cube.FOV/2.0 
+        i = -1
+    else:
+        xmin = xmin
+        i = np.abs(cube.xaxis - xmin).argmin()
+        i += 1 if cube.xaxis[i] < xmin else 0
+    if xmax is None:
+        xmax = -cube.FOV/2.0
+        j = -1
+    else:
+        xmax = xmax
+        j = np.abs(cube.xaxis - xmax).argmin()
+        j -= 1 if cube.xaxis[j] > xmax else 0
+
+    cube.xaxis = cube.xaxis[j+1:i]
+    cube.data = cube.data[:,:,j+1:i]
+
+    if ymin is None:
+        ymin = -cube.FOV/2.0
+        i = 0
+    else:
+        ymin = ymin
+        i = np.abs(cube.yaxis - ymin).argmin()
+        i += 1 if cube.yaxis[i] < ymin else 0
+    if ymax is None:
+        ymax = cube.FOV/2.0
+        j = -1
+    else:
+        ymax = ymax
+        j = np.abs(cube.yaxis - ymax).argmin()
+        j -= 1 if cube.yaxis[j] > ymax else 0
+
+    cube.yaxis = cube.yaxis[i:j]
+    cube.data = cube.data[:,i:j,:]
 
     # Crop the data along the velocity axis, implemented from gofish
     vmin = cube.velax[0] if vmin is None else vmin*1.0e3
@@ -139,15 +170,17 @@ def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None
 
     toplot = np.around(cube.data,decimals=3)
 
-    cmap = concatenate_cmaps('binary','inferno',ratio=fmed/fmax) if cmap is None else cmap
+    cmap = concatenate_cmaps('binary','inferno',ratio=fmed/fmax) if cmap is None else concatenate_cmaps('binary',cmap,ratio=fmed/fmax)
 
     fig = px.imshow(toplot, color_continuous_scale=cmap, origin='lower', 
-                    x=cube.xaxis, y=cube.yaxis,
+                    x=cube.xaxis, y=cube.yaxis, 
                     zmin=fmin, zmax=fmax, 
                     labels=dict(x="RA offset [arcsec]", y="Dec offset [arcsec]", 
                                 color="Intensity ["+funit+"]", animation_frame="channel"),
                     animation_frame=0,
                    )
+#    fig.update_xaxes(range=[xmin, xmax],autorange=False)
+#    fig.update_yaxes(range=[ymax, ymin],autorange=False)
     fig.update_xaxes(autorange="reversed")
     fig.update_xaxes(ticks="outside")
     fig.update_yaxes(ticks="outside")
@@ -157,7 +190,7 @@ def make_cm(path, clip=3., fmin=None, fmed=None, fmax=None, vmin=None, vmax=None
                               )
 
     if show_figure:
-        fig.show()
+       fig.show()
     if write_html:
        fig.write_html(path.replace('.fits', '_channel.html'), include_plotlyjs='cdn')
     return
@@ -299,18 +332,23 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
     ymin = -cube.FOV/2.0 if ymin is None else ymin
     ymax = cube.FOV/2.0 if ymax is None else ymax
 
+    if rmax is not None:
+        xmin, xmax, ymin, ymax = rmax, -rmax, -rmax, rmax
+
     colorscale = make_colorscale('cmr.pride') if colorscale is None else cmap
     cmin = vmin/1.0e3 if cmin is None else cmin
     cmax = vmax/1.0e3 if cmax is None else cmax
 
     # 3d scatter plot
+
     for a, alpha in enumerate(opacity):
         mask = np.logical_and(i >= cuts[a], i < cuts[a+1])
         datas += [go.Scatter3d(x=x[mask], y=y[mask], z=v[mask], mode='markers',
                                marker=dict(size=marker_size, color=v[mask], colorscale=colorscale,
                                            cauto=False, cmin=cmin, cmax=cmax,
                                            opacity=min(1.0, alpha)),
-                               hoverinfo=hoverinfo,
+                               hoverinfo=hoverinfo, 
+#legendgroup="group1", name="SO", showlegend=True if a==0 else False,
 #                              name='I ='+(str('% 4.2f' % cuts[a]))+' -'+(str('% 4.2f' % cuts[a+1]))
                               )
                  ]
@@ -329,6 +367,7 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
                                   yaxis_range=[ymin, ymax],
                                   zaxis_range=[vmin/1.0e3, vmax/1.0e3],
                                   aspectmode='cube'),
+#                       margin=dict(l=0, r=0, b=0, t=0), 
                        margin=dict(l=0, r=0, b=0, t=0), showlegend=False,
                        )
 
@@ -341,8 +380,8 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
 
     if show_colorbar:
         fig.update_traces(marker_colorbar=dict(thickness=20, 
-                                               tickvals=np.arange(cmin,cmax+1),
-                                               tickformat='.2f',
+#                                               tickvals=np.arange(cmin,cmax+1),
+                                               tickformat='.1f',
                                                title='v [km/s]',
                                                title_side='right',
                                                len=0.5
@@ -356,6 +395,12 @@ def make_ppv(path, clip=3., rmin=None, rmax=None, N=None, cmin=None, cmax=None, 
                  )
 
     fig.update_layout(scene_camera=camera)
+    fig.update_layout(legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=0.01
+    ))
 
     if show_figure:
         fig.show()
